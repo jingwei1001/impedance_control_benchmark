@@ -78,6 +78,7 @@ class ClearBoard:
         desired_contact_force,
         normal_filter_alpha,
         exit_pos_threshold,
+        release_force_threshold = 2
     ):
         self.dt = dt
         self.in_contact = False
@@ -85,11 +86,13 @@ class ClearBoard:
         self.contact_force_threshold = contact_force_threshold
         self.desired_contact_force = desired_contact_force
         self.exit_pos_threshold = exit_pos_threshold
+        self.allow_reenter = True
+        self.release_force_threshold = release_force_threshold
+        self.last_pos_n = 0
 
         self.normal_estimator = ContactNormalEstimator(
             alpha=normal_filter_alpha
         )
-
         # === 保留你原本的参数 ===
         self.adm = ScalarAdmittance1D(
             M=2.0,
@@ -110,11 +113,15 @@ class ClearBoard:
         force_norm = np.linalg.norm(measured_force)
 
         # ========= Free space =========
+        print(self.allow_reenter)
+        if force_norm < self.release_force_threshold:
+                self.allow_reenter = True
         if not self.in_contact:
-            if force_norm < self.contact_force_threshold:
+            if force_norm < self.contact_force_threshold or (not self.allow_reenter): 
                 return target_pos, target_quat
 
             # ---- enter contact ----
+            
             self.in_contact = True
             self.contact_pos_ref = target_pos.copy()
             self.normal_estimator.reset()
@@ -125,10 +132,13 @@ class ClearBoard:
 
         pos_error = target_pos - self.contact_pos_ref
         pos_n, pos_t = self._decompose(pos_error, normal)
+        print(pos_n)
+        self.last_pos_n = np.abs(pos_n)
 
-        if np.abs(pos_n) > self.exit_pos_threshold:
+        if pos_n < -self.exit_pos_threshold:
             self.in_contact = False
             self.contact_pos_ref = None
+            self.allow_reenter = False
             return target_pos, target_quat
 
         force_n = np.dot(measured_force, normal)
